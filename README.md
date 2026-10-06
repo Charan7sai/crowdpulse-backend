@@ -330,14 +330,6 @@ This backend is designed to work with the Next.js frontend in `../frontend-next`
 - `/history` endpoint for trend charts
 - `/video_feed` endpoint for live camera view
 
-## 📝 License
-
-[Add your license here]
-
-## 👥 Contributing
-
-[Add contribution guidelines here]
-
 ---
 
 **Built with:** Python • Flask • YOLOv8 • OpenCV • SQLite
