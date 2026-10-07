@@ -43,10 +43,48 @@ FRUIN_MAX_DENSITY  = 1.5   # people/m² → absolute max capacity
 BREACH_RATE_WINDOW = 10   # recent readings used for fill-rate calc
 
 # ── Camera ─────────────────────────────────────────────────
+# CAMERA_SOURCE can be: a webcam index (0/1), an RTSP URL (CCTV),
+# or an HTTP/MJPEG URL (phone camera app). It can also be changed at
+# runtime from the website (saved in CAMERA_SETTINGS_PATH).
 CAMERA_INDEX              = int(os.getenv("CAMERA_INDEX", "0"))
+CAMERA_SOURCE             = os.getenv("CAMERA_SOURCE", str(CAMERA_INDEX))
+CAMERA_MAX_WIDTH          = int(os.getenv("CAMERA_MAX_WIDTH", "960"))  # downscale big CCTV streams
+CAMERA_SETTINGS_PATH      = os.getenv("CAMERA_SETTINGS_PATH", "camera_settings.json")
+CAMERA_ADMIN_TOKEN        = os.getenv("CAMERA_ADMIN_TOKEN", "")  # optional: protects /camera/* changes
+
+# ── Auto-recalibration ─────────────────────────────────────
+AUTO_CALIBRATE_ENABLED         = os.getenv("AUTO_CALIBRATE_ENABLED", "true").lower() == "true"
+AUTO_CALIBRATE_INTERVAL_SEC    = int(os.getenv("AUTO_CALIBRATE_INTERVAL_SEC", "30"))
+AUTO_CALIBRATE_SKIP_WHEN_EMPTY = os.getenv("AUTO_CALIBRATE_SKIP_WHEN_EMPTY", "true").lower() == "true"
+CALIBRATION_SMOOTHING          = float(os.getenv("CALIBRATION_SMOOTHING", "0.6"))  # 0 = no smoothing
+
 YOLO_MODEL_PATH           = os.getenv("YOLO_MODEL_PATH", "yolov8n.pt")
 YOLO_SEG_MODEL_PATH       = os.getenv("YOLO_SEG_MODEL_PATH", "yolov8n-seg.pt")
 YOLO_CONFIDENCE_THRESHOLD = float(os.getenv("YOLO_CONFIDENCE", "0.4"))
+
+# ── Floor detection ────────────────────────────────────────
+# SegFormer-B5 trained on ADE20K (has a real "floor" class). Most accurate
+# SegFormer size. About 340 MB, downloaded once on first start, then cached.
+# Needs: pip install transformers
+#   Faster, less accurate : nvidia/segformer-b2-finetuned-ade-512-512 (~110 MB)
+#   Original method       : none  (whole frame minus top 20% minus objects)
+FLOOR_MODEL_ID = os.getenv("FLOOR_MODEL_ID", "nvidia/segformer-b5-finetuned-ade-640-640")
+
+# The floor itself rarely moves, so the heavy model only re-runs this often.
+# Manual recalibration and camera changes always re-run it immediately.
+FLOOR_REFRESH_SEC = int(os.getenv("FLOOR_REFRESH_SEC", "300"))
+
+# Known real floor area in m2. When set, capacity uses this number instead of
+# the camera-based estimate (the floor mask is still used for the preview).
+# Can also be changed from the dashboard.
+_area_env = os.getenv("ZONE_AREA_OVERRIDE_M2", "").strip()
+ZONE_AREA_OVERRIDE_M2 = float(_area_env) if _area_env else None
+ZONE_SETTINGS_PATH = os.getenv("ZONE_SETTINGS_PATH", "zone_settings.json")
+
+# Used only when no real area is given: how many metres tall the camera's view
+# of the floor is. Assumes a roughly top-down view; for angled cameras, enter
+# the real area instead.
+ZONE_VIEW_HEIGHT_M = float(os.getenv("ZONE_VIEW_HEIGHT_M", "5.0"))
 
 # ── Risk engine — EMA smoothing ────────────────────────────
 SMOOTHING_ALPHA = 0.7     # weight for current count vs history

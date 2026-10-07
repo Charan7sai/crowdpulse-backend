@@ -1,8 +1,33 @@
-venv/
+# Python
 __pycache__/
-*.pyc
-.env
-my.env/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
 
-crowd_data.db/
-crowd_data.bd
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Secrets and local configuration (may contain camera passwords)
+my.env
+.env
+.env.*
+!my.env.example
+
+# Settings saved at runtime from the dashboard
+camera_settings.json
+zone_settings.json
+
+# Local data
+*.db
+*.db-journal
+*.sqlite3
+*.log
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

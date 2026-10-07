@@ -1,335 +1,192 @@
-# AI Detection Service — Crowd Management Backend
+# CrowdPulse Backend
 
-A real-time crowd monitoring and risk assessment service powered by YOLOv8 and Flask. This backend service provides intelligent crowd density analysis, risk scoring, and live video streaming capabilities for crowd management applications.
+Detection and risk service for CrowdPulse AI. It reads a live video feed from a CCTV camera, a phone camera or a webcam, counts the people in view, works out the safe and maximum capacity of the monitored floor, and returns a crowd risk level.
 
-## 🎯 Overview
+The dashboard lives in the companion repository, `crowdpulse-frontend`.
 
-The AI Detection Service uses computer vision and machine learning to:
-- **Detect and count people** in real-time using YOLOv8
-- **Assess crowd risk** based on density, growth rate, and persistence metrics
-- **Stream live video** with MJPEG encoding
-- **Log historical data** to SQLite for trend analysis
-- **Provide REST API endpoints** for frontend integration
+## What it does
 
-## ✨ Features
+- Counts people in the live frame with YOLOv8.
+- Detects the walkable floor with a segmentation model and converts it to an area in square metres.
+- Derives safe and maximum capacity from crowd safety densities (1.0 and 1.5 people per m2).
+- Scores risk from occupancy, growth rate and how long the zone stays crowded.
+- Recalibrates the floor estimate automatically while people are in view.
+- Connects to RTSP CCTV cameras and phone camera apps, and can switch camera at runtime.
+- Logs every reading to SQLite for history charts.
 
-### Real-Time Detection
-- YOLOv8-based person detection with configurable confidence threshold
-- Continuous camera capture on background thread
-- Frame-level inference with minimal latency
+## Requirements
 
-### Intelligent Risk Assessment
-The risk engine evaluates three key factors:
+- Python 3.10 or newer
+- A camera: RTSP CCTV or IP camera, a phone running a camera app, or a webcam
+- Internet access on the first start, to download the floor detection model once
 
-1. **Density Ratio** — Current occupancy vs. zone capacity (smoothed with EMA)
-2. **Growth Rate** — Rate of crowd increase over sliding time window
-3. **Persistence** — Duration of high-density state with hysteresis
+## Quick start
 
-Risk levels: `Safe` → `Elevated` → `High` → `Critical`
-
-### Data Persistence
-- SQLite database for logging all crowd readings
-- Historical data retrieval for trend charts
-- Thread-safe database operations
-
-### Video Streaming
-- MJPEG stream endpoint for live camera feed
-- ~20 FPS streaming with JPEG encoding
-- Compatible with standard HTML `<img>` tags
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────┐
-│         Flask REST API Server           │
-├─────────────────────────────────────────┤
-│  GET /detect      → Risk Assessment     │
-│  GET /history     → Historical Data     │
-│  GET /video_feed  → MJPEG Stream        │
-└─────────────────────────────────────────┘
-           ↓                ↓
-    ┌──────────┐    ┌──────────────┐
-    │  YOLOv8  │    │ Risk Engine  │
-    │  Model   │    │  (Stateful)  │
-    └──────────┘    └──────────────┘
-           ↓                ↓
-    ┌──────────────────────────┐
-    │   Camera Capture Thread  │
-    │   (Background, Daemon)   │
-    └──────────────────────────┘
-                     ↓
-              ┌──────────────┐
-              │ SQLite DB    │
-              │ crowd_data   │
-              └──────────────┘
-```
-
-## 📋 Prerequisites
-
-- **Python 3.8+**
-- **Webcam or IP Camera** (accessible via OpenCV)
-- **OS**: Windows, Linux, or macOS
-
-## 🚀 Installation
-
-### 1. Clone the Repository
 ```bash
-cd ai-service
-```
+git clone https://github.com/Charan7sai/crowdpulse-backend.git
+cd crowdpulse-backend
 
-### 2. Create Virtual Environment (Recommended)
-```bash
-python -m venv venv
+python -m venv .venv
+# Windows:  .venv\Scripts\activate
+# macOS/Linux:  source .venv/bin/activate
 
-# Windows
-venv\Scripts\activate
-
-# Linux/Mac
-source venv/bin/activate
-```
-
-### 3. Install Dependencies
-```bash
 pip install -r requirements.txt
-```
+pip install transformers
 
-The YOLOv8n model (`yolov8n.pt`) will be automatically downloaded on first run if not present.
+cp my.env.example my.env      # Windows: copy my.env.example my.env
+# edit my.env and set CAMERA_SOURCE
 
-## ⚙️ Configuration
-
-Edit `config.py` to customize the service:
-
-### Zone Settings
-```python
-ZONE_CAPACITY = 5  # Maximum safe occupancy for monitored area
-```
-
-### Camera Settings
-```python
-CAMERA_INDEX = 1            # 0 = default webcam, 1 = external camera
-YOLO_CONFIDENCE_THRESHOLD = 0.4  # Min confidence for detections
-```
-
-### Risk Engine Parameters
-```python
-# EMA Smoothing
-SMOOTHING_ALPHA = 0.7  # Weight for current count (higher = more reactive)
-
-# Growth Rate
-GROWTH_RATE_WINDOW = 3  # Compare against count N readings ago
-
-# Persistence & Hysteresis
-HIGH_DENSITY_THRESHOLD = 0.8   # Enter high-density state
-HIGH_DENSITY_EXIT = 0.7        # Exit high-density state (prevents flickering)
-CRITICAL_PERSISTENCE_SEC = 10  # Seconds in high state → Critical
-
-# Surge Detection
-SURGE_GROWTH_THRESHOLD = 3  # Person increase triggering surge flag
-
-# Risk Score Weights (must sum to 1.0)
-WEIGHT_DENSITY = 0.5
-WEIGHT_GROWTH = 0.3
-WEIGHT_PERSISTENCE = 0.2
-
-# Risk Level Thresholds
-RISK_THRESHOLD_LOW = 0.4     # Score < 0.4 → Safe
-RISK_THRESHOLD_MEDIUM = 0.6  # Score < 0.6 → Elevated
-RISK_THRESHOLD_HIGH = 0.8    # Score < 0.8 → High
-                              # Score ≥ 0.8 → Critical
-```
-
-### Server Settings
-```python
-FLASK_PORT = 5001
-DATABASE_PATH = "crowd_data.db"
-```
-
-## 🔌 API Endpoints
-
-### `GET /detect`
-Run YOLO inference on the latest camera frame and return risk assessment.
-
-**Response:**
-```json
-{
-  "current_count": 8,
-  "smoothed_count": 7.3,
-  "density_ratio": 0.73,
-  "growth_rate": 2.0,
-  "risk_score": 0.65,
-  "risk_level": "Elevated",
-  "surge_flag": false,
-  "duration_in_high_state": 0.0,
-  "timestamp": "2026-02-17T14:32:18.123456+00:00"
-}
-```
-
-**Status Codes:**
-- `200` — Success
-- `503` — Camera not ready
-
----
-
-### `GET /history?minutes=N`
-Retrieve recent crowd log entries for trend analysis.
-
-**Query Parameters:**
-- `minutes` (optional) — Time range in minutes (default: 2, range: 1-60)
-
-**Response:**
-```json
-[
-  {
-    "id": 1,
-    "timestamp": "2026-02-17T14:30:00.000000+00:00",
-    "current_count": 5,
-    "density_ratio": 0.5,
-    "risk_level": "Safe",
-    "risk_score": 0.35,
-    ...
-  },
-  ...
-]
-```
-
----
-
-### `GET /video_feed`
-MJPEG stream of live camera feed (~20 FPS).
-
-**Response:**
-- Content-Type: `multipart/x-mixed-replace; boundary=frame`
-
-**Usage in HTML:**
-```html
-<img src="http://localhost:5001/video_feed" alt="Live Feed" />
-```
-
-## 🎮 Usage
-
-### Start the Service
-```bash
 python app.py
 ```
 
-Expected output:
-```
-[INFO] Camera 1 opened — capture thread running
- * Running on http://127.0.0.1:5001
-```
+The service listens on `http://127.0.0.1:5001`.
 
-### Test the API
+The first start downloads the floor model (about 340 MB). Run it once with internet access before a demo or an offline deployment. After that it works offline.
+
+## Connecting a camera
+
+Set `CAMERA_SOURCE` in `my.env`, or choose the camera from the dashboard setup screen. A camera chosen on the dashboard is saved in `camera_settings.json` and takes priority after a restart.
+
+| Camera | `CAMERA_SOURCE` example |
+|---|---|
+| Laptop webcam | `0` |
+| Android phone (IP Webcam app) | `http://192.168.1.50:8080/video` |
+| Phone or PC webcam app (DroidCam) | `http://192.168.1.50:4747/video` |
+| Hikvision / HiWatch | `rtsp://user:password@192.168.1.64:554/Streaming/Channels/101` |
+| Dahua / CP Plus / Amcrest / Lorex | `rtsp://user:password@192.168.1.108:554/cam/realmonitor?channel=1&subtype=0` |
+
+Built-in stream address patterns cover Hikvision, Dahua and its OEM brands, Axis, Uniview, Reolink, TP-Link Tapo, Foscam, Hanwha Wisenet, Vivotek, EZVIZ and generic RTSP cameras. `POST /camera/discover` tries every pattern against a camera and reports which ones open.
+
+Tips:
+
+- The computer running the backend must be able to reach the camera. On networks that isolate devices (guest, college or hotel Wi-Fi), use the phone's hotspot instead.
+- Use the sub stream of a CCTV camera if processing lags.
+- Large streams are scaled down to `CAMERA_MAX_WIDTH` before processing.
+- Use a viewer account on the camera, not the admin account.
+- Some cameras lock an account after several failed logins, so confirm the credentials before running discovery.
+
+## Configuration
+
+All settings are read from `my.env`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CAMERA_SOURCE` | `0` | Webcam index, RTSP URL or HTTP/MJPEG URL |
+| `CAMERA_MAX_WIDTH` | `960` | Streams wider than this are scaled down |
+| `CAMERA_ADMIN_TOKEN` | empty | If set, camera and floor area changes require the header `X-Admin-Token` |
+| `AUTO_CALIBRATE_ENABLED` | `true` | Turn automatic recalibration on or off |
+| `AUTO_CALIBRATE_INTERVAL_SEC` | `30` | How often the calibrator checks the scene |
+| `AUTO_CALIBRATE_SKIP_WHEN_EMPTY` | `true` | Skip recalibration when nobody is in view |
+| `CALIBRATION_SMOOTHING` | `0.6` | Blend of previous and new area estimates (0 disables) |
+| `FLOOR_MODEL_ID` | `nvidia/segformer-b5-finetuned-ade-640-640` | Floor segmentation model. `none` uses YOLOv8-seg object subtraction instead |
+| `FLOOR_REFRESH_SEC` | `300` | How often the floor model re-runs. Manual recalibration and camera changes always re-run it |
+| `ZONE_AREA_OVERRIDE_M2` | empty | Real floor area in m2. Overrides the camera estimate |
+| `ZONE_VIEW_HEIGHT_M` | `5.0` | Assumed height of the camera view, used only when no real area is set |
+| `ZONE_NAME` | `Main Hall` | Name shown on the dashboard |
+| `ZONE_AREA_M2` | `50` | Fallback area if calibration fails |
+| `YOLO_MODEL_PATH` | `yolov8n.pt` | Person detection model |
+| `YOLO_SEG_MODEL_PATH` | `yolov8n-seg.pt` | Segmentation model for person footprints and the fallback floor method |
+| `YOLO_CONFIDENCE` | `0.4` | Detection confidence threshold |
+| `FLASK_PORT` | `5001` | Port the service listens on |
+| `DATABASE_PATH` | `crowd_data.db` | SQLite file for readings |
+
+A larger person model (`yolov8s.pt` or `yolov8m.pt`) improves counts at the cost of speed on CPU.
+
+## How capacity is calculated
+
+1. The floor model labels each pixel of the frame. Pixels labelled floor, rug or carpet form the walkable area. People on the floor count as floor, so a crowd does not shrink the area.
+2. The pixel area is converted to square metres. If a real area is entered (in `my.env` or on the dashboard) it is used directly. Otherwise the area is estimated from the camera view, which is approximate and works best for cameras mounted high and looking down.
+3. Safe capacity is the area multiplied by 1.0 person per m2. Maximum capacity is the area multiplied by 1.5 people per m2.
+
+For reliable numbers, enter the real floor area.
+
+## How risk is scored
+
+Each reading is evaluated by the risk engine:
+
+- **Occupancy** is the smoothed count (exponential moving average, alpha 0.7) divided by capacity.
+- **Growth** is the change in count compared with 3 readings earlier. A gain of 3 or more people raises the surge flag.
+- **Persistence** is how long occupancy stays above 0.8. It exits that state when occupancy falls below 0.7.
+- **Risk score** is `0.5 x occupancy + 0.3 x growth + 0.2 x persistence`.
+
+| Score | Level |
+|---|---|
+| below 0.4 | Safe |
+| 0.4 to 0.6 | Elevated |
+| 0.6 to 0.8 | High |
+| 0.8 and above | Critical |
+
+Density in people per m2 is also classified with Fruin levels of service: free movement (below 0.5), restricted (below 1.0), body contact possible (below 2.0), pushing and pressure (below 4.0) and crush risk (4.0 and above).
+
+## Automatic recalibration
+
+Every `AUTO_CALIBRATE_INTERVAL_SEC` seconds the calibrator checks the scene:
+
+- If the zone has never been calibrated, it calibrates as soon as the camera is ready.
+- If people are in view, it recalibrates, because furniture and crowds move.
+- If the floor is empty and already calibrated, it skips the run.
+- After a camera change it calibrates immediately.
+
+The manual `POST /recalibrate` call shares the same code path, so manual and automatic runs never overlap.
+
+## API
+
+All responses are JSON unless noted.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/detect` | Detect people in the latest frame and return the full risk assessment |
+| GET | `/history?minutes=N` | Logged readings for the last N minutes (1 to 60) |
+| GET | `/video_feed` | MJPEG stream with boxes around detected people |
+| GET | `/zone` | Floor area, safe and maximum capacity, calibration details |
+| GET | `/zone_preview` | MJPEG stream with the detected floor highlighted |
+| POST | `/zone/area` | Set the real floor area: `{"area_m2": 12}`. Send `null` to use the estimate |
+| POST | `/recalibrate` | Recalibrate the zone on the current frame |
+| GET | `/calibration_status` | Automatic recalibration state |
+| GET | `/camera/status` | Camera health and the current source (password hidden) |
+| GET | `/camera/presets` | Supported camera brands and phone apps |
+| POST | `/camera/test` | Test a camera without switching to it |
+| POST | `/camera/source` | Switch camera using a `url`, or `brand`, `ip`, `user`, `password`, `port`, `channel`, `stream` |
+| POST | `/camera/discover` | Try every known stream address for one camera |
+
+`/detect` returns the current and smoothed count, occupancy ratio, growth rate, risk score, risk level, surge flag, time spent in the high state and a timestamp.
+
+Example:
+
 ```bash
-# Get current risk assessment
-curl http://localhost:5001/detect
+curl http://127.0.0.1:5001/detect
 
-# Get last 5 minutes of history
-curl http://localhost:5001/history?minutes=5
-
-# Stream video (open in browser)
-# http://localhost:5001/video_feed
+curl -X POST http://127.0.0.1:5001/camera/source \
+  -H "Content-Type: application/json" \
+  -d '{"brand":"hikvision","ip":"192.168.1.64","user":"viewer","password":"secret","stream":"main"}'
 ```
 
-## 🧠 Risk Engine Details
+## Security notes
 
-### Risk Score Calculation
+- `my.env` and `camera_settings.json` can contain camera passwords. Both are excluded from Git. Never commit them.
+- Set `CAMERA_ADMIN_TOKEN` if the service is reachable by anyone other than you. Without it, anyone who can reach the port can change the camera.
+- The Flask development server is used by default. For a permanent deployment, run behind a production WSGI server and a reverse proxy with HTTPS.
 
-The compound risk score is a weighted sum:
-
-$$
-\text{risk\_score} = w_d \cdot r_d + w_g \cdot r_g + w_p \cdot r_p
-$$
-
-Where:
-- $r_d$ = **Density Risk** = `min(density_ratio, 1.0)`
-- $r_g$ = **Growth Risk** = `min(growth_rate / 10, 1.0)`
-- $r_p$ = **Persistence Risk** = `min(duration / 30, 1.0)`
-
-Default weights: $w_d = 0.5$, $w_g = 0.3$, $w_p = 0.2$
-
-### Risk Level Classification
-
-| Risk Level  | Score Range | Description                          |
-|-------------|-------------|--------------------------------------|
-| **Safe**    | < 0.4       | Normal operation, no concerns        |
-| **Elevated**| 0.4 - 0.6   | Increased density, monitor closely   |
-| **High**    | 0.6 - 0.8   | High density, prepare intervention   |
-| **Critical**| ≥ 0.8       | Overcrowded, immediate action needed |
-
-### Surge Detection
-
-A surge is flagged when:
-```python
-growth_rate >= SURGE_GROWTH_THRESHOLD
-```
-
-This indicates a rapid influx of people requiring immediate attention.
-
-### Hysteresis
-
-To prevent oscillation between risk states, the engine uses hysteresis:
-- **Enter high state** when `density_ratio >= 0.8`
-- **Exit high state** only when `density_ratio < 0.7`
-
-This creates a "sticky" behavior that reduces false alarms.
-
-## 📁 Project Structure
+## Project structure
 
 ```
-ai-service/
-├── app.py              # Flask server & API endpoints
-├── config.py           # Configuration parameters
-├── database.py         # SQLite persistence layer
-├── risk_engine.py      # Stateful risk assessment engine
-├── requirements.txt    # Python dependencies
-├── yolov8n.pt         # YOLOv8 nano model weights
-├── crowd_data.db      # SQLite database (auto-generated)
-└── README.md          # This file
+app.py               Flask app and endpoints
+config.py            Settings and thresholds
+camera_source.py     Camera reader with reconnect and runtime switching
+camera_presets.py    Stream address patterns and discovery
+zone_estimator.py    Floor detection, area and capacity
+auto_calibration.py  Automatic recalibration scheduler
+risk_engine.py       Stateful risk scoring
+database.py          SQLite logging
+my.env.example       Example configuration
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-### Camera Not Found
-```
-[ERROR] Cannot open camera index 1
-```
-**Solution:** Change `CAMERA_INDEX` in `config.py` to `0` (default webcam).
-
-### Low Detection Accuracy
-**Solution:** Adjust `YOLO_CONFIDENCE_THRESHOLD` in `config.py`. Lower values detect more (but less confident) objects.
-
-### Port Already in Use
-```
-Address already in use
-```
-**Solution:** Change `FLASK_PORT` in `config.py` or kill the process using port 5001.
-
-### Database Locked
-**Solution:** Ensure only one instance of the service is running. SQLite doesn't support concurrent writers well.
-
-## 🔒 Security Notes
-
-⚠️ **This is a development server.** For production:
-- Use a production WSGI server (gunicorn, uWSGI)
-- Add authentication/authorization
-- Enable HTTPS/TLS
-- Restrict CORS origins
-- Rate-limit API endpoints
-
-## 📊 Performance
-
-- **Detection Speed:** ~30-50ms per frame (YOLO inference)
-- **Video Stream:** ~20 FPS with JPEG encoding
-- **API Response Time:** < 100ms (excluding inference)
-- **Memory Usage:** ~500MB (YOLOv8n model loaded)
-
-## 🤝 Integration
-
-This backend is designed to work with the Next.js frontend in `../frontend-next`. The frontend consumes:
-- `/detect` endpoint for real-time risk display
-- `/history` endpoint for trend charts
-- `/video_feed` endpoint for live camera view
-
----
-
-**Built with:** Python • Flask • YOLOv8 • OpenCV • SQLite
+| Problem | What to check |
+|---|---|
+| `Cannot open camera source` | Wrong address or credentials, or the camera is unreachable from this computer |
+| Phone camera does not connect | Open the phone's address in the computer's browser first. If that fails, switch to the phone's hotspot |
+| Floor model errors on start | Run `pip install transformers` and make sure the first start has internet. Set `FLOOR_MODEL_ID=none` to run without it |
+| Capacity looks too high | Enter the real floor area on the dashboard or set `ZONE_AREA_OVERRIDE_M2` |
+| Video lags | Use the camera's sub stream, lower `CAMERA_MAX_WIDTH`, or keep `yolov8n.pt` |
